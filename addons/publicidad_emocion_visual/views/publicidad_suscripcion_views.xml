@@ -1,0 +1,120 @@
+<odoo>
+    <!-- LIST VIEW -->
+    <record id="view_publicidad_suscripcion_list" model="ir.ui.view">
+        <field name="name">publicidad.suscripcion.list</field>
+        <field name="model">publicidad.suscripcion</field>
+        <field name="arch" type="xml">
+            <list string="Suscripciones de publicidad"
+                  decoration-danger="is_close_to_due">
+                <field name="partner_id"/>
+                <field name="product_id"/>
+                <field name="ubicacion"/>
+                <field name="fecha_inicio"/>
+                <field name="fecha_fin"/>
+                <field name="duracion_meses"/>
+                <field name="state"/>
+                <field name="invoice_id"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- FORM VIEW -->
+    <record id="view_publicidad_suscripcion_form" model="ir.ui.view">
+        <field name="name">publicidad.suscripcion.form</field>
+        <field name="model">publicidad.suscripcion</field>
+        <field name="arch" type="xml">
+            <form string="Suscripción de publicidad">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="partner_id"/>
+                            <field name="product_id"/>
+                            <field name="ubicacion" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="duracion_meses"/>
+                            <field name="fecha_inicio"/>
+                            <field name="fecha_fin" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group>
+                        <group>
+                            <field name="state" readonly="1"/>
+                            <field name="invoice_id" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+
+                <footer>
+                    <button name="action_confirm_and_invoice"
+                            string="Confirmar y Facturar"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state != 'borrador'"/>
+                    <button string="Cerrar"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- SEARCH VIEW -->
+    <record id="view_publicidad_suscripcion_search" model="ir.ui.view">
+        <field name="name">publicidad.suscripcion.search</field>
+        <field name="model">publicidad.suscripcion</field>
+        <field name="arch" type="xml">
+            <search string="Buscar suscripciones">
+                <field name="partner_id"/>
+                <field name="product_id"/>
+                <field name="ubicacion"/>
+                <field name="state"/>
+
+                <filter name="close_to_due"
+                        string="Próximas a vencer"
+                        domain="[('is_close_to_due', '=', True)]"/>
+
+                <separator/>
+
+                <filter name="state_draft"
+                        string="Borrador"
+                        domain="[('state', '=', 'borrador')]"/>
+                <filter name="state_pending"
+                        string="Factura pendiente"
+                        domain="[('state', '=', 'factura_pendiente')]"/>
+                <filter name="state_active"
+                        string="Activa"
+                        domain="[('state', '=', 'activa')]"/>
+                <filter name="state_expired"
+                        string="Vencida"
+                        domain="[('state', '=', 'vencida')]"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- ACTION -->
+    <record id="action_publicidad_suscripcion" model="ir.actions.act_window">
+        <field name="name">Suscripciones de publicidad</field>
+        <field name="res_model">publicidad.suscripcion</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_publicidad_suscripcion_search"/>
+    </record>
+
+    <!-- MENUS -->
+    <menuitem id="menu_publicidad_root"
+              name="Publicidad"
+              parent="sale.sale_menu_root"
+              sequence="50"/>
+
+    <menuitem id="menu_publicidad_suscripciones"
+              name="Suscripciones"
+              parent="menu_publicidad_root"
+              action="action_publicidad_suscripcion"
+              sequence="10"/>
+    <menuitem id="menu_publicidad_dashboard_root"
+              name="Publicidad App"
+              action="action_publicidad_suscripcion"
+              web_icon="base,static/description/settings.png"
+              sequence="1"/>
+</odoo>
