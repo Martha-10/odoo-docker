@@ -26,10 +26,14 @@ class PublicidadSuscripcion(models.Model):
         required=True,
         tracking=True,
     )
-    contrato_marco = fields.Char(
+    contrato_marco_id = fields.Many2one(
+        comodel_name="publicidad.contrato.marco",
         string="Contrato Marco",
+        domain="[('partner_id', '=', partner_id)]",
         help="Permite agrupar múltiples suscripciones bajo un mismo contrato",
     )
+    # Deprecated: Kept for backward compatibility
+    contrato_marco = fields.Char(string="Contrato Marco (Deprecated)")
     user_id = fields.Many2one(
         comodel_name="res.users",
         string="Ejecutivo de Cuenta",
@@ -270,26 +274,43 @@ class PublicidadSuscripcion(models.Model):
                      "Motivo: El equipo requiere intervención técnica antes de volver a ser comercializado."
                  ) % {'product': rec.product_id.name, 'status': status_label})
 
-            # 2.1 Validación de Cruce de Fechas (Overbooking)
+            # 2.1 Validación de Stock de Tiempo (Disponibilidad por cantidad)
             if rec.product_id and rec.fecha_inicio and rec.fecha_fin:
+                # Contar suscripciones activas/confirmadas que se solapan
                 domain = [
                     ('product_id', '=', rec.product_id.id),
                     ('state', 'in', ['confirmed', 'active']),
                     ('id', '!=', rec.id),
-                    # Solapamiento: (StartA <= EndB) and (EndA >= StartB)
                     ('fecha_inicio', '<=', rec.fecha_fin),
                     ('fecha_fin', '>=', rec.fecha_inicio),
                 ]
-                conflict = self.search(domain, limit=1)
-                if conflict:
-                    raise ValidationError(_(
-                        "No es posible confirmar: El equipo %(product)s ya está reservado para el periodo del %(start)s al %(end)s. "
-                        "Por favor, elija otras fechas o un activo diferente."
+                overlapping_count = self.search_count(domain)
+                
+                # Obtener stock disponible (asumiendo que es un producto storable)
+                # Si es servicio, debería tener una restricción custom o usarse qty_available si se gestiona
+                # El requerimiento dice "Si existen 15 unidades...". Usaremos virtual_available o qty_available.
+                # Para ser seguros, usaremos qty_available (Cantidad a mano/real).
+                available_qty = rec.product_id.qty_available
+                
+                # Si es un servicio, qty_available suele ser 0 a menos que se configure. 
+                # Si el usuario usa stock real, debe ser Storable.
+                # Permitiremos verificar si available_qty > 0. Si es 0, asumimos sin limite O limite 1?
+                # Regla: "Si existen 15 unidades...". Asumimos que el producto TIENE stock configurado.
+                
+                if available_qty > 0 and (overlapping_count + 1) > available_qty:
+                     raise ValidationError(_(
+                        "No es posible confirmar: No hay disponibilidad suficiente del bien para ese periodo. "
+                        "(Capacidad Total: %(cap)s, Ocupado: %(occ)s, Solicitado: 1)"
                     ) % {
-                        'product': rec.product_id.name,
-                        'start': conflict.fecha_inicio,
-                        'end': conflict.fecha_fin,
+                        'cap': available_qty,
+                        'occ': overlapping_count,
                     })
+                elif available_qty == 0 and rec.product_id.type == 'product':
+                     # Si es almacenable y tiene 0 stock
+                     raise ValidationError(_("No hay stock disponible de este producto."))
+                
+                # Si es servicio (type='service') y qty=0, quizá deberíamos permitir o bloquear.
+                # El requerimiento dice "Bienes físicos reales...". Asumimos Productos Almacenables.
 
     def action_active(self):
         for rec in self:
