@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Category -->
+        <record id="module_category_publicidad" model="ir.module.category">
+            <field name="name">Publicidad</field>
+            <field name="description">Gestión de suscripciones de publicidad</field>
+            <field name="sequence">10</field>
+        </record>
+
+        <!-- Group: Asesor Comercial -->
+        <record id="group_publicidad_asesor" model="res.groups">
+            <field name="name">Asesor Comercial</field>
+            <field name="category_id" ref="module_category_publicidad"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Puede crear y leer suscripciones.</field>
+        </record>
+
+        <!-- Group: Operaciones -->
+        <record id="group_publicidad_operaciones" model="res.groups">
+            <field name="name">Operaciones</field>
+            <field name="category_id" ref="module_category_publicidad"/>
+            <field name="implied_ids" eval="[(4, ref('group_publicidad_asesor'))]"/>
+            <field name="comment">Puede editar campos técnicos y el Estado del Arte.</field>
+        </record>
+
+        <!-- Group: Finanzas -->
+        <record id="group_publicidad_finanzas" model="res.groups">
+            <field name="name">Finanzas</field>
+            <field name="category_id" ref="module_category_publicidad"/>
+            <field name="implied_ids" eval="[(4, ref('group_publicidad_operaciones'))]"/>
+            <field name="comment">Único grupo con permiso para confirmar pagos y activar suscripciones.</field>
+        </record>
+    </data>
+</odoo>

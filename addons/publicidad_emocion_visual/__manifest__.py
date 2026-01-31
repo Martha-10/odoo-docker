@@ -11,8 +11,10 @@
         "product",
         "account",
         "sale",
+        "mail",
     ],
     "data": [
+        "security/security_groups.xml",
         "security/ir.model.access.csv",
         "views/publicidad_suscripcion_views.xml",
         "data/publicidad_tax_data.xml",

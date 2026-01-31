@@ -5,15 +5,23 @@
         <field name="model">publicidad.suscripcion</field>
         <field name="arch" type="xml">
             <list string="Suscripciones de publicidad"
-                  decoration-danger="is_close_to_due">
+                  decoration-muted="state == 'cancel'"
+                  decoration-info="state == 'draft'"
+                  decoration-success="state == 'active'"
+                  decoration-danger="state == 'expired'">
+                <field name="name"/>
                 <field name="partner_id"/>
                 <field name="product_id"/>
-                <field name="ubicacion"/>
+                <field name="centro_comercial"/>
                 <field name="fecha_inicio"/>
                 <field name="fecha_fin"/>
-                <field name="duracion_meses"/>
-                <field name="state"/>
-                <field name="invoice_id"/>
+                <field name="state" widget="badge" 
+                       decoration-info="state == 'draft'"
+                       decoration-success="state == 'active'"
+                       decoration-danger="state == 'expired'"/>
+                <field name="estado_arte" widget="badge"
+                       decoration-warning="estado_arte == 'pending'"
+                       decoration-success="estado_arte == 'approved'"/>
             </list>
         </field>
     </record>
@@ -24,38 +32,84 @@
         <field name="model">publicidad.suscripcion</field>
         <field name="arch" type="xml">
             <form string="Suscripción de publicidad">
+                <header>
+                    <button name="action_confirm" string="Confirmar" type="object" class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_active" string="Iniciar Exhibición" type="object" class="btn-primary"
+                            invisible="state != 'confirmed'"/>
+                    <button name="action_approve_art" string="Aprobar Arte" type="object" class="btn-secondary"
+                            invisible="estado_arte != 'pending'"/>
+                    <button name="action_pause" string="Pausar" type="object"
+                            invisible="state != 'active'"/>
+                    <button name="action_cancel" string="Cancelar" type="object"
+                            invisible="state in ('cancel', 'expired')"/>
+                    <button name="action_draft" string="Volver a Borrador" type="object"
+                            invisible="state == 'draft'"/>
+
+                    <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,active,expired"/>
+                </header>
                 <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
                     <group>
                         <group>
                             <field name="partner_id"/>
-                            <field name="product_id"/>
-                            <field name="ubicacion" readonly="1"/>
+                            <field name="contrato_marco"/>
+                            <field name="user_id"/>
                         </group>
                         <group>
-                            <field name="duracion_meses"/>
-                            <field name="fecha_inicio"/>
-                            <field name="fecha_fin" readonly="1"/>
+                            <field name="state" invisible="1"/>
+                            <field name="estado_arte" widget="radio" options="{'horizontal': true}"/>
                         </group>
                     </group>
 
-                    <group>
-                        <group>
-                            <field name="state" readonly="1"/>
-                            <field name="invoice_id" readonly="1"/>
-                        </group>
-                    </group>
+                    <notebook>
+                        <page string="Detalles de Pauta">
+                            <group>
+                                <group string="Ubicación">
+                                    <field name="centro_comercial"/>
+                                    <field name="ubicacion_macro"/>
+                                    <field name="ubicacion_detalle"/>
+                                </group>
+                                <group string="Especificaciones">
+                                    <field name="product_id"/>
+                                    <field name="formato_id"/>
+                                    <field name="tipo_contenido"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="Condiciones Comerciales">
+                            <group>
+                                <group string="Vigencia">
+                                    <field name="duracion_meses"/>
+                                    <field name="fecha_inicio"/>
+                                    <field name="fecha_fin"/>
+                                </group>
+                                <group string="Facturación">
+                                    <field name="precio_mensual"/>
+                                    <field name="valor_total"/>
+                                    <field name="currency_id" invisible="1"/>
+                                </group>
+                                <group string="Pago">
+                                    <field name="metodo_pago"/>
+                                    <field name="porcentaje_anticipo" widget="percentage"/>
+                                    <field name="monto_anticipo"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="Configuración Técnica">
+                           <group>
+                               <field name="invoice_id"/>
+                           </group>
+                        </page>
+                    </notebook>
                 </sheet>
-
-                <footer>
-                    <button name="action_confirm_and_invoice"
-                            string="Confirmar y Facturar"
-                            type="object"
-                            class="btn-primary"
-                            invisible="state != 'borrador'"/>
-                    <button string="Cerrar"
-                            class="btn-secondary"
-                            special="cancel"/>
-                </footer>
+                <chatter/>
             </form>
         </field>
     </record>
@@ -66,55 +120,54 @@
         <field name="model">publicidad.suscripcion</field>
         <field name="arch" type="xml">
             <search string="Buscar suscripciones">
+                <field name="name"/>
                 <field name="partner_id"/>
+                <field name="contrato_marco"/>
                 <field name="product_id"/>
-                <field name="ubicacion"/>
-                <field name="state"/>
+                <field name="centro_comercial"/>
 
-                <filter name="close_to_due"
-                        string="Próximas a vencer"
-                        domain="[('is_close_to_due', '=', True)]"/>
+                <filter name="state_draft" string="Borrador" domain="[('state', '=', 'draft')]"/>
+                <filter name="state_active" string="En Exhibición" domain="[('state', '=', 'active')]"/>
+                <filter name="state_paused" string="Pausada" domain="[('state', '=', 'paused')]"/>
+                <filter name="my_subscriptions" string="Mis Suscripciones" domain="[('user_id', '=', uid)]"/>
 
-                <separator/>
-
-                <filter name="state_draft"
-                        string="Borrador"
-                        domain="[('state', '=', 'borrador')]"/>
-                <filter name="state_pending"
-                        string="Factura pendiente"
-                        domain="[('state', '=', 'factura_pendiente')]"/>
-                <filter name="state_active"
-                        string="Activa"
-                        domain="[('state', '=', 'activa')]"/>
-                <filter name="state_expired"
-                        string="Vencida"
-                        domain="[('state', '=', 'vencida')]"/>
+                <group expand="0" string="Agrupar Por">
+                    <filter string="Cliente" name="group_by_partner" context="{'group_by': 'partner_id'}"/>
+                    <filter string="Centro Comercial" name="group_by_cc" context="{'group_by': 'centro_comercial'}"/>
+                    <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
+                </group>
             </search>
         </field>
     </record>
 
     <!-- ACTION -->
     <record id="action_publicidad_suscripcion" model="ir.actions.act_window">
-        <field name="name">Suscripciones de publicidad</field>
+        <field name="name">Suscripciones de Publicidad</field>
         <field name="res_model">publicidad.suscripcion</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_publicidad_suscripcion_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Crea tu primera suscripción publicitaria
+            </p>
+        </field>
     </record>
 
     <!-- MENUS -->
     <menuitem id="menu_publicidad_root"
               name="Publicidad"
-              parent="sale.sale_menu_root"
+              web_icon="publicidad_emocion_visual,static/description/icon.png"
               sequence="50"/>
 
-    <menuitem id="menu_publicidad_suscripciones"
-              name="Suscripciones"
+    <menuitem id="menu_publicidad_operaciones"
+              name="Operaciones"
               parent="menu_publicidad_root"
+              sequence="10"/>
+
+    <menuitem id="menu_publicidad_sub"
+              name="Suscripciones"
+              parent="menu_publicidad_operaciones"
               action="action_publicidad_suscripcion"
               sequence="10"/>
-    <menuitem id="menu_publicidad_dashboard_root"
-              name="Publicidad App"
-              action="action_publicidad_suscripcion"
-              web_icon="base,static/description/settings.png"
-              sequence="1"/>
+
 </odoo>

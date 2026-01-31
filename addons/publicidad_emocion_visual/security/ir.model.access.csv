@@ -1,3 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_publicidad_suscripcion_manager,access_publicidad_suscripcion_manager,model_publicidad_suscripcion,base.group_user,1,1,1,1
-
+access_publicidad_asesor,publicidad.suscripcion.asesor,model_publicidad_suscripcion,group_publicidad_asesor,1,1,1,0
+access_publicidad_operaciones,publicidad.suscripcion.operaciones,model_publicidad_suscripcion,group_publicidad_operaciones,1,1,1,1
+access_publicidad_finanzas,publicidad.suscripcion.finanzas,model_publicidad_suscripcion,group_publicidad_finanzas,1,1,1,1
