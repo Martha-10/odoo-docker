@@ -18,3 +18,9 @@ class ContratoMarco(models.Model):
         required=True,
         ondelete="restrict",
     )
+    suscripcion_ids = fields.One2many(
+        comodel_name="publicidad.suscripcion",
+        inverse_name="contrato_marco_id",
+        string="Suscripciones",
+        help="Historial de suscripciones bajo este contrato",
+    )

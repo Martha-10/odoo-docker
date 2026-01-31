@@ -10,6 +10,20 @@
                         <field name="name"/>
                         <field name="partner_id"/>
                     </group>
+                    <notebook>
+                        <page string="Historial">
+                            <field name="suscripcion_ids">
+                                <list string="Suscripciones">
+                                    <field name="name"/>
+                                    <field name="product_id"/>
+                                    <field name="fecha_inicio"/>
+                                    <field name="fecha_fin"/>
+                                    <field name="state"/>
+                                    <field name="valor_total"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
             </form>
         </field>

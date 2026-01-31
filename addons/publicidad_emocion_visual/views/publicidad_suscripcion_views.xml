@@ -60,7 +60,9 @@
                             <field name="user_id"/>
                             <!-- Reubicado por solicitud urgente: Activo Visible -->
                             <field name="product_id" context="{'display_default_code': False}"/>
-                            <field name="contrato_marco_id" context="{'default_partner_id': partner_id}"/>
+                            <field name="contrato_marco_id" 
+                                   context="{'default_partner_id': partner_id}"
+                                   options="{'quick_create': True, 'create_edit': True}"/>
                         </group>
                         <group>
                             <field name="state" invisible="1"/>

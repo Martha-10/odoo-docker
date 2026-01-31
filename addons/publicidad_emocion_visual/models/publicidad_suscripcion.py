@@ -196,6 +196,7 @@ class PublicidadSuscripcion(models.Model):
             ("active", "En Exhibición"),
             ("paused", "Pausada"),
             ("expired", "Vencida"),
+            ("cancel", "Cancelado"),
         ],
         string="Estado",
         default="draft",
@@ -291,21 +292,37 @@ class PublicidadSuscripcion(models.Model):
                             rec.tamano = ptav.product_attribute_value_id.name
                             break
 
-    @api.depends("product_id", "tipo_contenido")
+    @api.depends("product_id", "tipo_contenido", "centro_comercial", "ubicacion_macro")
     def _compute_precio_mensual(self):
-        """Calcula precio mensual: base + extras de atributos"""
+        """Motor de precios dinámico: base + extras + recargos por ubicación"""
         for rec in self:
             if not rec.product_id:
                 rec.precio_mensual = 0.0
                 continue
             
-            # Precio base del producto
+            # 1. Precio base + extras de atributos (Tamaño, Formato ya incluidos en price_extra)
             base_price = rec.product_id.lst_price
-            
-            # Sumar price_extra de la variante (incluye todos los atributos con precio)
             extra_price = rec.product_id.price_extra if hasattr(rec.product_id, 'price_extra') else 0.0
             
-            rec.precio_mensual = base_price + extra_price
+            # 2. Recargo por Centro Comercial (personalizable)
+            centro_surcharge = {
+                'viva': 0.0,
+                'buenavista': 0.0,
+                'mallplaza': 0.0,
+                'unico': 0.0,
+                'plaza_central': 0.0,
+            }.get(rec.centro_comercial, 0.0)
+            
+            # 3. Recargo por Ubicación Macro (personalizable)
+            ubicacion_surcharge = {
+                'fachada': 0.0,
+                'entrada': 0.0,
+                'pasillo': 0.0,
+                'plazoleta': 0.0,
+            }.get(rec.ubicacion_macro, 0.0)
+            
+            # TOTAL: Base + Extras + Recargos
+            rec.precio_mensual = base_price + extra_price + centro_surcharge + ubicacion_surcharge
 
     @api.onchange("product_id")
     def _onchange_product_id(self):
@@ -456,21 +473,21 @@ class PublicidadSuscripcion(models.Model):
             rec.state = "confirmed"
 
     def action_active(self):
-        """Activa la suscripción (En Exhibición) con validaciones estrictas"""
+        """Activa la suscripción con validaciones estrictas"""
         for rec in self:
             # VALIDACIÓN 1: Anticipo debe estar recibido
             if rec.monto_anticipo > 0 and not rec.anticipo_recibido:
                 raise ValidationError(_(
-                    "No se puede iniciar la exhibición sin haber recibido el anticipo. "
-                    "Por favor marque 'Anticipo Recibido' antes de continuar."
+                    "Acción Bloqueada: No se puede iniciar la pauta sin confirmar la recepción del anticipo. "
+                    "Por favor, verifique el pago con contabilidad."
                 ))
             
             # VALIDACIÓN 2: Arte debe estar aprobado
             if rec.estado_arte != "approved":
                 raise ValidationError(_(
-                    "No se puede iniciar la exhibición sin el arte aprobado. "
-                    "Estado actual del arte: %(status)s. Por favor apruebe el arte primero."
-                ) % {'status': dict(rec._fields['estado_arte'].selection).get(rec.estado_arte)})
+                    "Control de Calidad: El arte aún no ha sido aprobado. "
+                    "Debe cambiar el Estado del Arte a 'Aprobado' antes de poner la suscripción en exhibición."
+                ))
             
             rec.state = "active"
 
