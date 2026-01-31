@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_contrato_marco_form" model="ir.ui.view">
+        <field name="name">contrato.marco.form</field>
+        <field name="model">contrato.marco</field>
+        <field name="arch" type="xml">
+            <form string="Contrato Marco">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="partner_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_contrato_marco_tree" model="ir.ui.view">
+        <field name="name">contrato.marco.tree</field>
+        <field name="model">contrato.marco</field>
+        <field name="arch" type="xml">
+            <list string="Contratos Marco">
+                <field name="name"/>
+                <field name="partner_id"/>
+            </list>
+        </field>
+    </record>
+</odoo>

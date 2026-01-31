@@ -64,7 +64,6 @@
                         </group>
                         <group>
                             <field name="state" invisible="1"/>
-                            <field name="estado_arte" widget="radio" options="{'horizontal': true}"/>
                             <separator string="Vigencia"/>
                             <label for="fecha_inicio" string="Periodo"/>
                             <div class="o_row">
@@ -112,15 +111,12 @@
 
                         <page string="Configuración Técnica">
                            <group>
-                                <group string="Ficha Técnica del Activo" class="oe_read_only">
+                                <group string="Especificaciones Técnicas (Solo Lectura)">
                                     <field name="formato" readonly="1" force_save="1"/>
                                     <field name="tamano" readonly="1" force_save="1"/>
                                 </group>
-                                <group string="Estado del Arte">
+                                <group string="Aprobación de Arte">
                                     <field name="estado_arte"/>
-                                </group>
-                                <group string="Otros">
-                                    <field name="invoice_id"/>
                                 </group>
                            </group>
                         </page>

@@ -30,6 +30,7 @@ class PublicidadSuscripcion(models.Model):
         comodel_name="contrato.marco",
         string="Contrato Marco",
         domain="[('partner_id', '=', partner_id)]",
+        ondelete="set null",
         help="Contrato marco que agrupa esta suscripción",
     )
     user_id = fields.Many2one(
@@ -287,6 +288,9 @@ class PublicidadSuscripcion(models.Model):
                 elif "tamaño" in attr_name or "tamano" in attr_name:
                     for ptav in rec.product_id.product_template_attribute_value_ids:
                         if ptav.attribute_id == attr_line.attribute_id:
+                            rec.tamano = ptav.product_attribute_value_id.name
+                            break
+
     @api.depends("product_id", "tipo_contenido")
     def _compute_precio_mensual(self):
         """Calcula precio mensual: base + extras de atributos"""

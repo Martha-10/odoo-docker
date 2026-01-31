@@ -17,6 +17,7 @@
         "security/security_groups.xml",
         "security/ir.model.access.csv",
         "views/publicidad_suscripcion_views.xml",
+        "views/contrato_marco_views.xml",
         "data/publicidad_tax_data.xml",
     ],
     "application": True,
