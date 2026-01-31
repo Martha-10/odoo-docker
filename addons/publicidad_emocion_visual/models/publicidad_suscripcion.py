@@ -27,13 +27,11 @@ class PublicidadSuscripcion(models.Model):
         tracking=True,
     )
     contrato_marco_id = fields.Many2one(
-        comodel_name="publicidad.contrato.marco",
+        comodel_name="contrato.marco",
         string="Contrato Marco",
         domain="[('partner_id', '=', partner_id)]",
-        help="Permite agrupar múltiples suscripciones bajo un mismo contrato",
+        help="Contrato marco que agrupa esta suscripción",
     )
-    # Deprecated: Kept for backward compatibility
-    contrato_marco = fields.Char(string="Contrato Marco (Deprecated)")
     user_id = fields.Many2one(
         comodel_name="res.users",
         string="Ejecutivo de Cuenta",
@@ -51,7 +49,34 @@ class PublicidadSuscripcion(models.Model):
         tracking=True,
     )
 
-    # Campos relacionados a producto (Sincronización Total con Atributos)
+    # === ATRIBUTOS FÍSICOS DEL ACTIVO (READONLY - Desde Inventario) ===
+    formato = fields.Char(
+        string="Formato",
+        compute="_compute_technical_specs",
+        store=True,
+        readonly=True,
+        help="Formato del activo físico (extraído del inventario)",
+    )
+    tamano = fields.Char(
+        string="Tamaño",
+        compute="_compute_technical_specs",
+        store=True,
+        readonly=True,
+        help="Dimensiones del activo físico (extraído del inventario)",
+    )
+    
+    # === VARIABLES DE NEGOCIO Y SERVICIO (EDITABLES) ===
+    tipo_contenido = fields.Selection(
+        selection=[
+            ("estatico", "Estático"),
+            ("video", "Video"),
+        ],
+        string="Tipo de Contenido",
+        required=True,
+        default="estatico",
+        tracking=True,
+        help="Tipo de contenido a exhibir. Video tiene cargo adicional.",
+    )
     centro_comercial = fields.Selection(
         selection=[
             ("viva", "Viva"),
@@ -61,31 +86,21 @@ class PublicidadSuscripcion(models.Model):
             ("plaza_central", "Plaza Central"),
         ],
         string="Centro Comercial",
-        store=True,
-        readonly=False, # Editable por el usuario
+        required=True,
         tracking=True,
+        help="Sede donde se exhibirá el activo",
     )
-    ubicacion_macro = fields.Char(
+    ubicacion_macro = fields.Selection(
+        selection=[
+            ("fachada", "Fachada"),
+            ("entrada", "Entrada"),
+            ("pasillo", "Pasillo"),
+            ("plazoleta", "Plazoleta de Comidas"),
+        ],
         string="Ubicación Macro",
-        compute="_compute_attributes",
-        store=True,
-    )
-    # ubicacion_detalle removed as requested
-    
-    formato_id = fields.Char(
-        string="Formato",
-        compute="_compute_attributes",
-        store=True,
-    )
-    tamano = fields.Char(
-        string="Tamaño",
-        compute="_compute_attributes",
-        store=True,
-    )
-    tipo_contenido = fields.Char(
-        string="Tipo de Contenido",
-        compute="_compute_attributes",
-        store=True,
+        required=True,
+        tracking=True,
+        help="Espacio de exhibición contratado",
     )
 
     # 1.4 Bloque "Vigencia y Finanzas"
@@ -102,8 +117,12 @@ class PublicidadSuscripcion(models.Model):
     )
     precio_mensual = fields.Monetary(
         string="Precio Mensual",
+        compute="_compute_precio_mensual",
+        store=True,
+        readonly=True,
         currency_field="currency_id",
         tracking=True,
+        help="Precio base + extras de atributos (Video, etc.)",
     )
     valor_total = fields.Monetary(
         string="Valor Total",
@@ -127,6 +146,18 @@ class PublicidadSuscripcion(models.Model):
         default="contado",
         required=True,
     )
+    numero_cuotas = fields.Integer(
+        string="Número de Cuotas",
+        default=1,
+        help="Cantidad de cuotas para pago fraccionado",
+    )
+    valor_cuota = fields.Monetary(
+        string="Valor por Cuota",
+        compute="_compute_valor_cuota",
+        store=True,
+        currency_field="currency_id",
+        help="Monto de cada cuota (calculado automáticamente)",
+    )
     porcentaje_anticipo = fields.Float(
         string="% Anticipo",
         default=0.0,
@@ -136,6 +167,12 @@ class PublicidadSuscripcion(models.Model):
         compute="_compute_monto_anticipo",
         store=True,
         currency_field="currency_id",
+    )
+    anticipo_recibido = fields.Boolean(
+        string="Anticipo Recibido",
+        default=False,
+        tracking=True,
+        help="Marcar cuando el anticipo ha sido pagado",
     )
 
     fecha_inicio = fields.Date(
@@ -158,7 +195,6 @@ class PublicidadSuscripcion(models.Model):
             ("active", "En Exhibición"),
             ("paused", "Pausada"),
             ("expired", "Vencida"),
-            ("cancel", "Cancelada"),
         ],
         string="Estado",
         default="draft",
@@ -168,13 +204,14 @@ class PublicidadSuscripcion(models.Model):
     )
     estado_arte = fields.Selection(
         selection=[
-            ("pending", "Pendiente de Arte"),
-            ("approved", "Arte Aprobado"),
-            ("published", "En Exhibición"),
+            ("pending", "Pendiente"),
+            ("received", "Recibido"),
+            ("approved", "Aprobado"),
         ],
-        string="Estado Arte",
+        string="Estado del Arte",
         default="pending",
         tracking=True,
+        help="Estado de aprobación del contenido publicitario",
     )
 
     # Campos legacy/compatibilidad (se mantienen si se usan, o se adaptan)
@@ -187,89 +224,131 @@ class PublicidadSuscripcion(models.Model):
 
     # --- LOGICA ---
 
-    @api.onchange("partner_id", "product_id")
+    @api.onchange("partner_id", "product_id", "ubicacion_macro")
     def _onchange_name_auto(self):
+        """Genera título dinámico: SUB / [Cliente] / [Activo] / [Ubicación]"""
         for rec in self:
             partner_name = rec.partner_id.name or "Cliente"
             product_ref = rec.product_id.name or "Activo"
-            rec.name = f"SUB / {partner_name} / {product_ref}"
+            ubicacion = dict(rec._fields['ubicacion_macro'].selection).get(rec.ubicacion_macro, "") if rec.ubicacion_macro else ""
+            
+            if ubicacion:
+                rec.name = f"SUB / {partner_name} / {product_ref} / {ubicacion}"
+            else:
+                rec.name = f"SUB / {partner_name} / {product_ref}"
 
     @api.model
     def create(self, vals):
         if vals.get("name", "Nuevo") == "Nuevo":
-            # Recalcular nombre si viene como Nuevo para asegurar consistencia
             partner_name = "Cliente"
             product_ref = "Activo"
+            ubicacion = ""
             
             if "partner_id" in vals:
                 partner = self.env["res.partner"].browse(vals["partner_id"])
                 partner_name = partner.name or "S/C"
             
             if "product_id" in vals:
-                 prod = self.env["product.product"].browse(vals["product_id"])
-                 product_ref = prod.name or "S/P"
-
-            vals["name"] = f"SUB / {partner_name} / {product_ref}"
+                prod = self.env["product.product"].browse(vals["product_id"])
+                product_ref = prod.name or "S/P"
+            
+            if "ubicacion_macro" in vals and vals["ubicacion_macro"]:
+                ubicacion_dict = dict(self._fields['ubicacion_macro'].selection)
+                ubicacion = ubicacion_dict.get(vals["ubicacion_macro"], "")
+            
+            if ubicacion:
+                vals["name"] = f"SUB / {partner_name} / {product_ref} / {ubicacion}"
+            else:
+                vals["name"] = f"SUB / {partner_name} / {product_ref}"
         
         return super().create(vals)
 
     @api.depends("product_id")
-    def _compute_attributes(self):
+    def _compute_technical_specs(self):
+        """Extrae atributos técnicos readonly desde attribute_line_ids del inventario"""
         for rec in self:
-            # Reset values for computed fields
-            # Notice centro_comercial is NOT computed here anymore to allow editing.
-            rec.ubicacion_macro = ""
-            rec.formato_id = ""
+            rec.formato = ""
             rec.tamano = ""
-            rec.tipo_contenido = ""
             
-            if rec.product_id:
-                # Iterar sobre los valores de atributos del producto variante
-                for ptav in rec.product_id.product_template_attribute_value_ids:
-                    # ptav.attribute_id.name -> Nombre del atributo (Ej: 'Formato')
-                    # ptav.name -> Valor del atributo (Ej: 'Valla')
-                    attr_name = ptav.attribute_id.name.lower() if ptav.attribute_id.name else ""
-                    val_name = ptav.name
-                    
-                    if "formato" in attr_name:
-                        rec.formato_id = val_name
-                    elif "tamaño" in attr_name or "tamano" in attr_name:
-                        rec.tamano = val_name
-                    elif "contenido" in attr_name:
-                        rec.tipo_contenido = val_name
-                    elif "ubicación" in attr_name or "ubicacion" in attr_name:
-                         # Si es macro ubicacion (Pasillo, Entrada etc)
-                         if val_name in ["Fachada", "Entrada", "Pasillo", "Plazoleta de Comidas"]:
-                            rec.ubicacion_macro = val_name
-                         else:
-                            # Intento asignar a macro de todas formas
-                            rec.ubicacion_macro = val_name
+            if not rec.product_id or not rec.product_id.product_tmpl_id:
+                continue
+                
+            # Buscar en las líneas de atributos del template
+            for attr_line in rec.product_id.product_tmpl_id.attribute_line_ids:
+                attr_name = attr_line.attribute_id.name.lower() if attr_line.attribute_id.name else ""
+                
+                if "formato" in attr_name:
+                    # Obtener el valor específico para esta variante
+                    for ptav in rec.product_id.product_template_attribute_value_ids:
+                        if ptav.attribute_id == attr_line.attribute_id:
+                            rec.formato = ptav.product_attribute_value_id.name
+                            break
+                            
+                elif "tamaño" in attr_name or "tamano" in attr_name:
+                    for ptav in rec.product_id.product_template_attribute_value_ids:
+                        if ptav.attribute_id == attr_line.attribute_id:
+    @api.depends("product_id", "tipo_contenido")
+    def _compute_precio_mensual(self):
+        """Calcula precio mensual: base + extras de atributos"""
+        for rec in self:
+            if not rec.product_id:
+                rec.precio_mensual = 0.0
+                continue
+            
+            # Precio base del producto
+            base_price = rec.product_id.lst_price
+            
+            # Sumar price_extra de la variante (incluye todos los atributos con precio)
+            extra_price = rec.product_id.price_extra if hasattr(rec.product_id, 'price_extra') else 0.0
+            
+            rec.precio_mensual = base_price + extra_price
 
     @api.onchange("product_id")
     def _onchange_product_id(self):
+        """Pre-carga inteligente al seleccionar activo"""
         if self.product_id:
+            # Pre-cargar centro comercial si hay atributo de ubicación
+            if self.product_id.product_tmpl_id:
+                for attr_line in self.product_id.product_tmpl_id.attribute_line_ids:
+                    attr_name = attr_line.attribute_id.name.lower() if attr_line.attribute_id.name else ""
+                    
+                    if "ubicacion" in attr_name or "centro" in attr_name:
+                        for ptav in self.product_id.product_template_attribute_value_ids:
+                            if ptav.attribute_id == attr_line.attribute_id:
+                                val_name = ptav.product_attribute_value_id.name.lower()
+                                
+                                if "viva" in val_name:
+                                    self.centro_comercial = "viva"
+                                elif "buenavista" in val_name:
+                                    self.centro_comercial = "buenavista"
+                                elif "mallplaza" in val_name:
+                                    self.centro_comercial = "mallplaza"
+                                elif "unico" in val_name:
+                                    self.centro_comercial = "unico"
+                                elif "plaza" in val_name and "central" in val_name:
+                                    self.centro_comercial = "plaza_central"
+                                break
+    
+    @api.onchange("tipo_contenido")
+    def _onchange_tipo_contenido(self):
+        """Ajuste automático de precio si se selecciona Video"""
+        if self.product_id and self.tipo_contenido == "video":
+            # Precio base + precio extra de la variante
+            base_price = self.product_id.lst_price
+            extra_price = self.product_id.price_extra if hasattr(self.product_id, 'price_extra') else 0.0
+            self.precio_mensual = base_price + extra_price
+        elif self.product_id:
+            # Volver al precio base si cambia a estático
             self.precio_mensual = self.product_id.lst_price
-            
-            # Pre-carga inteligente de Centro Comercial
-            # Buscamos en los atributos si hay algo que coincida con las opciones
-            for ptav in self.product_id.product_template_attribute_value_ids:
-                val_name = ptav.name.lower()
-                # Mapeo simple basado en las opciones del selection
-                if "viva" in val_name:
-                    self.centro_comercial = "viva"
-                elif "buenavista" in val_name:
-                    self.centro_comercial = "buenavista"
-                elif "mallplaza" in val_name:
-                    self.centro_comercial = "mallplaza"
-                elif "unico" in val_name:
-                    self.centro_comercial = "unico"
-                elif "plaza" in val_name and "central" in val_name:
-                    self.centro_comercial = "plaza_central"
 
-    @api.depends("ubicacion_macro", "ubicacion_detalle")
-    def _compute_ubicacion_deprecated(self):
+    @api.depends("valor_total", "numero_cuotas")
+    def _compute_valor_cuota(self):
+        """Calcula el valor de cada cuota automáticamente"""
         for rec in self:
-            rec.ubicacion = f"{rec.ubicacion_macro or ''} - {rec.ubicacion_detalle or ''}"
+            if rec.numero_cuotas and rec.numero_cuotas > 0:
+                rec.valor_cuota = rec.valor_total / rec.numero_cuotas
+            else:
+                rec.valor_cuota = 0.0
 
     @api.depends("duracion_meses", "precio_mensual")
     def _compute_valor_total(self):
@@ -282,9 +361,17 @@ class PublicidadSuscripcion(models.Model):
 
     @api.depends("valor_total", "porcentaje_anticipo", "metodo_pago")
     def _compute_monto_anticipo(self):
+        """Calcula el monto del anticipo según el método de pago"""
         for rec in self:
-            if rec.metodo_pago in ["anticipo_saldo", "cuotas"] or rec.porcentaje_anticipo > 0:
-                rec.monto_anticipo = rec.valor_total * (rec.porcentaje_anticipo / 100.0)
+            if rec.metodo_pago in ["anticipo_saldo", "cuotas"]:
+                if rec.porcentaje_anticipo > 0:
+                    rec.monto_anticipo = rec.valor_total * (rec.porcentaje_anticipo / 100.0)
+                else:
+                    # Anticipo por defecto: 30% para cuotas
+                    if rec.metodo_pago == "cuotas":
+                        rec.monto_anticipo = rec.valor_total * 0.30
+                    else:
+                        rec.monto_anticipo = 0.0
             else:
                 rec.monto_anticipo = 0.0
 
@@ -307,60 +394,80 @@ class PublicidadSuscripcion(models.Model):
 
     @api.constrains('state', 'product_id', 'fecha_inicio', 'fecha_fin')
     def _check_availability_constrains(self):
+        """Validaciones estrictas de disponibilidad"""
         for rec in self:
             if rec.state not in ['confirmed', 'active']:
                 continue
 
-            # 1. Estado Técnico
-            if rec.product_id and rec.product_id.product_tmpl_id.x_estado_tecnico != 'operativo':
-                 status_label = dict(rec.product_id.product_tmpl_id._fields['x_estado_tecnico'].selection).get(rec.product_id.product_tmpl_id.x_estado_tecnico)
-                 raise ValidationError(_(
-                     "Acción Bloqueada: El activo %(product)s no puede ser reservado porque su estado actual es %(status)s. "
-                     "Motivo: El equipo requiere intervención técnica."
-                 ) % {'product': rec.product_id.name, 'status': status_label})
+            if not rec.product_id:
+                continue
 
-            # 2. Cruce de Fechas / Stock
-            domain_search = [
-                ('product_id', '=', rec.product_id.id),
-                ('state', 'in', ['confirmed', 'active']),
-                ('id', '!=', rec.id),
-                ('fecha_inicio', '<=', rec.fecha_fin),
-                ('fecha_fin', '>=', rec.fecha_inicio),
-            ]
-            overlapping_count = self.search_count(domain_search)
-            available_qty = rec.product_id.qty_available
+            # 1. VALIDACIÓN DE STOCK FÍSICO
+            if rec.product_id.qty_available == 0:
+                raise ValidationError(_(
+                    "Activo Fuera de Servicio: %(product)s no tiene stock disponible. "
+                    "Se encuentra en mantenimiento o fuera de bodega."
+                ) % {'product': rec.product_id.display_name})
 
-            if available_qty > 0 and (overlapping_count + 1) > available_qty:
-                 conflict = self.search(domain_search, limit=1)
-                 start_str = conflict.fecha_inicio.strftime('%d/%m/%Y') if conflict else rec.fecha_inicio
-                 end_str = conflict.fecha_fin.strftime('%d/%m/%Y') if conflict else rec.fecha_fin
-                 
-                 raise ValidationError(_(
-                    "Acción Bloqueada: El equipo %(product)s ya está reservado del %(start)s al %(end)s.\n"
-                    "(Capacidad Total: %(cap)s, Ocupado: %(occ)s)"
-                ) % {
-                    'product': rec.product_id.name,
-                    'start': start_str,
-                    'end': end_str,
-                    'cap': available_qty,
-                    'occ': overlapping_count,
-                })
-            elif available_qty == 0:
-                 raise ValidationError(_("No hay stock disponible de este activo (0 unidades)."))
+            # 2. VALIDACIÓN DE ESTADO TÉCNICO
+            if hasattr(rec.product_id.product_tmpl_id, 'x_estado_tecnico') and \
+               rec.product_id.product_tmpl_id.x_estado_tecnico != 'operativo':
+                status_label = dict(rec.product_id.product_tmpl_id._fields['x_estado_tecnico'].selection).get(
+                    rec.product_id.product_tmpl_id.x_estado_tecnico, 'No Operativo'
+                )
+                raise ValidationError(_(
+                    "Acción Bloqueada: El activo %(product)s no puede ser reservado porque su estado actual es %(status)s. "
+                    "Motivo: El equipo requiere intervención técnica."
+                ) % {'product': rec.product_id.display_name, 'status': status_label})
+
+            # 3. VALIDACIÓN DE AGENDA (Conflicto de Fechas)
+            if rec.fecha_inicio and rec.fecha_fin:
+                domain_search = [
+                    ('product_id', '=', rec.product_id.id),
+                    ('state', 'in', ['confirmed', 'active']),
+                    ('id', '!=', rec.id),
+                    ('fecha_inicio', '<=', rec.fecha_fin),
+                    ('fecha_fin', '>=', rec.fecha_inicio),
+                ]
+                conflict = self.search(domain_search, limit=1)
+                
+                if conflict:
+                    start_str = conflict.fecha_inicio.strftime('%d/%m/%Y')
+                    end_str = conflict.fecha_fin.strftime('%d/%m/%Y')
+                    contrato_ref = conflict.contrato_marco_id.name if conflict.contrato_marco_id else "Sin Contrato"
+                    
+                    raise ValidationError(_(
+                        "Bloqueo de Agenda: El activo %(product)s ya está asignado al contrato %(contrato)s "
+                        "del %(start)s al %(end)s."
+                    ) % {
+                        'product': rec.product_id.display_name,
+                        'contrato': contrato_ref,
+                        'start': start_str,
+                        'end': end_str,
+                    })
 
     def action_confirm(self):
+        """Confirma la suscripción"""
         for rec in self:
             rec.state = "confirmed"
-             # 2.3 Anticipo 100%
-            if rec.porcentaje_anticipo == 100.0:
-                 pass
-            # Validation handled by constrains on state change
 
     def action_active(self):
+        """Activa la suscripción (En Exhibición) con validaciones estrictas"""
         for rec in self:
-            # 2.1 Validación de Arte
-            if rec.estado_arte == "pending":
-                raise ValidationError(_("No se puede iniciar la exhibición sin el arte aprobado. Por favor apruebe el arte primero."))
+            # VALIDACIÓN 1: Anticipo debe estar recibido
+            if rec.monto_anticipo > 0 and not rec.anticipo_recibido:
+                raise ValidationError(_(
+                    "No se puede iniciar la exhibición sin haber recibido el anticipo. "
+                    "Por favor marque 'Anticipo Recibido' antes de continuar."
+                ))
+            
+            # VALIDACIÓN 2: Arte debe estar aprobado
+            if rec.estado_arte != "approved":
+                raise ValidationError(_(
+                    "No se puede iniciar la exhibición sin el arte aprobado. "
+                    "Estado actual del arte: %(status)s. Por favor apruebe el arte primero."
+                ) % {'status': dict(rec._fields['estado_arte'].selection).get(rec.estado_arte)})
+            
             rec.state = "active"
 
     def action_pause(self):

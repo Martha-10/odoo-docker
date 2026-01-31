@@ -77,17 +77,12 @@
                     </group>
 
                     <notebook>
-                        <page string="Detalles de Pauta">
+                        <page string="Configuración de Servicio">
                             <group>
-                                <group string="Ubicación">
-                                    <field name="centro_comercial" readonly="1" force_save="1"/>
-                                    <field name="ubicacion_macro" readonly="1" force_save="1"/>
-                                </group>
-                                <group string="ESPECIFICACIONES">
-                                    <!-- Campos solo lectura -->
-                                    <field name="formato_id" readonly="1" force_save="1"/>
-                                    <field name="tamano" readonly="1" force_save="1"/>
-                                    <field name="tipo_contenido" readonly="1" force_save="1"/>
+                                <group string="Variables de Negocio (Editables)">
+                                    <field name="tipo_contenido" widget="radio" options="{'horizontal': true}"/>
+                                    <field name="centro_comercial"/>
+                                    <field name="ubicacion_macro"/>
                                 </group>
                             </group>
                         </page>
@@ -104,17 +99,29 @@
                                     <field name="valor_total"/>
                                     <field name="currency_id" invisible="1"/>
                                 </group>
-                                <group string="Pago">
+                                <group string="Método de Pago">
                                     <field name="metodo_pago"/>
-                                    <field name="porcentaje_anticipo" widget="percentage"/>
-                                    <field name="monto_anticipo"/>
+                                    <field name="numero_cuotas" invisible="metodo_pago != 'cuotas'"/>
+                                    <field name="valor_cuota" invisible="metodo_pago != 'cuotas'"/>
+                                    <field name="porcentaje_anticipo" widget="percentage" invisible="metodo_pago not in ['anticipo_saldo', 'cuotas']"/>
+                                    <field name="monto_anticipo" invisible="metodo_pago not in ['anticipo_saldo', 'cuotas']"/>
+                                    <field name="anticipo_recibido" invisible="monto_anticipo == 0"/>
                                 </group>
                             </group>
                         </page>
 
                         <page string="Configuración Técnica">
                            <group>
-                               <field name="invoice_id"/>
+                                <group string="Ficha Técnica del Activo" class="oe_read_only">
+                                    <field name="formato" readonly="1" force_save="1"/>
+                                    <field name="tamano" readonly="1" force_save="1"/>
+                                </group>
+                                <group string="Estado del Arte">
+                                    <field name="estado_arte"/>
+                                </group>
+                                <group string="Otros">
+                                    <field name="invoice_id"/>
+                                </group>
                            </group>
                         </page>
                     </notebook>
