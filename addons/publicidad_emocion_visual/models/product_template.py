@@ -44,3 +44,13 @@ class ProductTemplate(models.Model):
         ],
         string="Tipo de Contenido",
     )
+    x_estado_tecnico = fields.Selection(
+        selection=[
+            ("operativo", "Operativo"),
+            ("mantenimiento", "En Mantenimiento"),
+            ("averiado", "Fuera de Servicio"),
+        ],
+        string="Estado Técnico",
+        default="operativo",
+        help="Estado técnico del activo físico.",
+    )

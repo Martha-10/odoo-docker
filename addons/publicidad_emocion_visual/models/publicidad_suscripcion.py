@@ -185,25 +185,19 @@ class PublicidadSuscripcion(models.Model):
     @api.model
     def create(self, vals):
         if vals.get("name", "Nuevo") == "Nuevo":
-            # Formato: SUB / [Cliente] / [Centro Comercial]
+            # Formato: SUB / [Cliente] / [Referencia del Producto]
             partner_name = "Cliente"
-            cc_name = "General"
+            product_ref = "Producto"
             
             if "partner_id" in vals:
                 partner = self.env["res.partner"].browse(vals["partner_id"])
                 partner_name = partner.name or "S/C"
             
-            # Intentar obtener CC del val o del producto
-            if "centro_comercial" in vals and vals["centro_comercial"]:
-                 # Como es selection, usaremos el valor raw por simplicidad o intentar buscar label
-                 # Para simplificar useremos el valor, lo ideal es el label pero require mapeo
-                 cc_name = vals["centro_comercial"].upper() 
-            elif "product_id" in vals:
+            if "product_id" in vals:
                  prod = self.env["product.product"].browse(vals["product_id"])
-                 if prod.centro_comercial:
-                     cc_name = prod.centro_comercial.upper()
+                 product_ref = prod.name or "S/P"
 
-            vals["name"] = f"SUB / {partner_name} / {cc_name}"
+            vals["name"] = f"SUB / {partner_name} / {product_ref}"
         
         return super().create(vals)
 
@@ -263,14 +257,39 @@ class PublicidadSuscripcion(models.Model):
     def action_confirm(self):
         for rec in self:
             rec.state = "confirmed"
-            # 2.3 Anticipo 100%
+             # 2.3 Anticipo 100%
             if rec.porcentaje_anticipo == 100.0:
-                 # Marcar como pagada/confirmada full? 
-                 # El requerimiento dice: "Debe marcarse automáticamente como confirmada / pagada"
-                 # Y "Debe pasar al estado confirmed sin pasos adicionales" -> Ya estamos pasando a confirmed.
-                 # Quizá se refiere a que si fuera otro flujo requeriría factura. 
-                 # Por ahora el cambio de estado cubre "pasar al estado confirmed".
                  pass
+            
+            # 2.2 Validación de Estado Técnico del Activo
+            # Validar que el producto esté operativo. Asumimos x_estado_tecnico en el template
+            if rec.product_id and rec.product_id.product_tmpl_id.x_estado_tecnico != 'operativo':
+                 status_label = dict(rec.product_id.product_tmpl_id._fields['x_estado_tecnico'].selection).get(rec.product_id.product_tmpl_id.x_estado_tecnico)
+                 raise ValidationError(_(
+                     "Acción denegada: El activo %(product)s no puede ser reservado porque su estado actual es %(status)s. "
+                     "Motivo: El equipo requiere intervención técnica antes de volver a ser comercializado."
+                 ) % {'product': rec.product_id.name, 'status': status_label})
+
+            # 2.1 Validación de Cruce de Fechas (Overbooking)
+            if rec.product_id and rec.fecha_inicio and rec.fecha_fin:
+                domain = [
+                    ('product_id', '=', rec.product_id.id),
+                    ('state', 'in', ['confirmed', 'active']),
+                    ('id', '!=', rec.id),
+                    # Solapamiento: (StartA <= EndB) and (EndA >= StartB)
+                    ('fecha_inicio', '<=', rec.fecha_fin),
+                    ('fecha_fin', '>=', rec.fecha_inicio),
+                ]
+                conflict = self.search(domain, limit=1)
+                if conflict:
+                    raise ValidationError(_(
+                        "No es posible confirmar: El equipo %(product)s ya está reservado para el periodo del %(start)s al %(end)s. "
+                        "Por favor, elija otras fechas o un activo diferente."
+                    ) % {
+                        'product': rec.product_id.name,
+                        'start': conflict.fecha_inicio,
+                        'end': conflict.fecha_fin,
+                    })
 
     def action_active(self):
         for rec in self:
