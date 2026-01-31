@@ -54,3 +54,4 @@ class ProductTemplate(models.Model):
         default="operativo",
         help="Estado técnico del activo físico.",
     )
+    tamano = fields.Char(string="Tamaño / Dimensiones")

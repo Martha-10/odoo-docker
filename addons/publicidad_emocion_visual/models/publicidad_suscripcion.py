@@ -44,46 +44,47 @@ class PublicidadSuscripcion(models.Model):
     # 1.3 Bloque "Dónde / Qué"
     product_id = fields.Many2one(
         comodel_name="product.product",
-        string="Espacio Publicitario",
-        domain=[("type", "=", "service")],
+        string="Activo Publicitario",
+        # Domain removed to restore visibility.
+        # domain=[("type", "=", "product")],
         required=True,
         tracking=True,
     )
 
-    # Campos relacionados a producto (copia para historial o visualización)
+    # Campos relacionados a producto (Sincronización Total con Atributos)
     centro_comercial = fields.Selection(
-        related="product_id.centro_comercial",
+        selection=[
+            ("viva", "Viva"),
+            ("buenavista", "Buenavista"),
+            ("mallplaza", "Mallplaza"),
+            ("unico", "Unico"),
+            ("plaza_central", "Plaza Central"),
+        ],
         string="Centro Comercial",
-        readonly=False,
         store=True,
+        readonly=False, # Editable por el usuario
+        tracking=True,
     )
-    ubicacion_macro = fields.Selection(
-        related="product_id.ubicacion_macro",
+    ubicacion_macro = fields.Char(
         string="Ubicación Macro",
-        readonly=False,
+        compute="_compute_attributes",
         store=True,
     )
-    ubicacion_detalle = fields.Char(
-        string="Ubicación Detalle",
-        compute="_compute_ubicacion_detalle",
-        store=True,
-        readonly=False,
-    )
-    # Deprecated: Kept for backward compatibility with old views during upgrade
-    ubicacion = fields.Char(
-        string="Ubicación (Deprecated)",
-        compute="_compute_ubicacion_deprecated",
-    )
-    formato_id = fields.Selection(
-        related="product_id.formato_id",
+    # ubicacion_detalle removed as requested
+    
+    formato_id = fields.Char(
         string="Formato",
-        readonly=False,
+        compute="_compute_attributes",
         store=True,
     )
-    tipo_contenido = fields.Selection(
-        related="product_id.tipo_contenido",
+    tamano = fields.Char(
+        string="Tamaño",
+        compute="_compute_attributes",
+        store=True,
+    )
+    tipo_contenido = fields.Char(
         string="Tipo de Contenido",
-        readonly=False,
+        compute="_compute_attributes",
         store=True,
     )
 
@@ -186,12 +187,19 @@ class PublicidadSuscripcion(models.Model):
 
     # --- LOGICA ---
 
+    @api.onchange("partner_id", "product_id")
+    def _onchange_name_auto(self):
+        for rec in self:
+            partner_name = rec.partner_id.name or "Cliente"
+            product_ref = rec.product_id.name or "Activo"
+            rec.name = f"SUB / {partner_name} / {product_ref}"
+
     @api.model
     def create(self, vals):
         if vals.get("name", "Nuevo") == "Nuevo":
-            # Formato: SUB / [Cliente] / [Referencia del Producto]
+            # Recalcular nombre si viene como Nuevo para asegurar consistencia
             partner_name = "Cliente"
-            product_ref = "Producto"
+            product_ref = "Activo"
             
             if "partner_id" in vals:
                 partner = self.env["res.partner"].browse(vals["partner_id"])
@@ -205,19 +213,58 @@ class PublicidadSuscripcion(models.Model):
         
         return super().create(vals)
 
+    @api.depends("product_id")
+    def _compute_attributes(self):
+        for rec in self:
+            # Reset values for computed fields
+            # Notice centro_comercial is NOT computed here anymore to allow editing.
+            rec.ubicacion_macro = ""
+            rec.formato_id = ""
+            rec.tamano = ""
+            rec.tipo_contenido = ""
+            
+            if rec.product_id:
+                # Iterar sobre los valores de atributos del producto variante
+                for ptav in rec.product_id.product_template_attribute_value_ids:
+                    # ptav.attribute_id.name -> Nombre del atributo (Ej: 'Formato')
+                    # ptav.name -> Valor del atributo (Ej: 'Valla')
+                    attr_name = ptav.attribute_id.name.lower() if ptav.attribute_id.name else ""
+                    val_name = ptav.name
+                    
+                    if "formato" in attr_name:
+                        rec.formato_id = val_name
+                    elif "tamaño" in attr_name or "tamano" in attr_name:
+                        rec.tamano = val_name
+                    elif "contenido" in attr_name:
+                        rec.tipo_contenido = val_name
+                    elif "ubicación" in attr_name or "ubicacion" in attr_name:
+                         # Si es macro ubicacion (Pasillo, Entrada etc)
+                         if val_name in ["Fachada", "Entrada", "Pasillo", "Plazoleta de Comidas"]:
+                            rec.ubicacion_macro = val_name
+                         else:
+                            # Intento asignar a macro de todas formas
+                            rec.ubicacion_macro = val_name
+
     @api.onchange("product_id")
     def _onchange_product_id(self):
         if self.product_id:
             self.precio_mensual = self.product_id.lst_price
-            # Los computed/related se actualizan solos, pero ubicacion detalle necesita trigger si vacio
-            if not self.ubicacion_detalle:
-                self.ubicacion_detalle = self.product_id.basic_ubicacion_detalle
-
-    @api.depends("product_id")
-    def _compute_ubicacion_detalle(self):
-        for rec in self:
-            if not rec.ubicacion_detalle and rec.product_id:
-                 rec.ubicacion_detalle = rec.product_id.basic_ubicacion_detalle
+            
+            # Pre-carga inteligente de Centro Comercial
+            # Buscamos en los atributos si hay algo que coincida con las opciones
+            for ptav in self.product_id.product_template_attribute_value_ids:
+                val_name = ptav.name.lower()
+                # Mapeo simple basado en las opciones del selection
+                if "viva" in val_name:
+                    self.centro_comercial = "viva"
+                elif "buenavista" in val_name:
+                    self.centro_comercial = "buenavista"
+                elif "mallplaza" in val_name:
+                    self.centro_comercial = "mallplaza"
+                elif "unico" in val_name:
+                    self.centro_comercial = "unico"
+                elif "plaza" in val_name and "central" in val_name:
+                    self.centro_comercial = "plaza_central"
 
     @api.depends("ubicacion_macro", "ubicacion_detalle")
     def _compute_ubicacion_deprecated(self):
@@ -258,59 +305,56 @@ class PublicidadSuscripcion(models.Model):
 
     # --- ACCIONES Y VALIDACIONES ---
 
+    @api.constrains('state', 'product_id', 'fecha_inicio', 'fecha_fin')
+    def _check_availability_constrains(self):
+        for rec in self:
+            if rec.state not in ['confirmed', 'active']:
+                continue
+
+            # 1. Estado Técnico
+            if rec.product_id and rec.product_id.product_tmpl_id.x_estado_tecnico != 'operativo':
+                 status_label = dict(rec.product_id.product_tmpl_id._fields['x_estado_tecnico'].selection).get(rec.product_id.product_tmpl_id.x_estado_tecnico)
+                 raise ValidationError(_(
+                     "Acción Bloqueada: El activo %(product)s no puede ser reservado porque su estado actual es %(status)s. "
+                     "Motivo: El equipo requiere intervención técnica."
+                 ) % {'product': rec.product_id.name, 'status': status_label})
+
+            # 2. Cruce de Fechas / Stock
+            domain_search = [
+                ('product_id', '=', rec.product_id.id),
+                ('state', 'in', ['confirmed', 'active']),
+                ('id', '!=', rec.id),
+                ('fecha_inicio', '<=', rec.fecha_fin),
+                ('fecha_fin', '>=', rec.fecha_inicio),
+            ]
+            overlapping_count = self.search_count(domain_search)
+            available_qty = rec.product_id.qty_available
+
+            if available_qty > 0 and (overlapping_count + 1) > available_qty:
+                 conflict = self.search(domain_search, limit=1)
+                 start_str = conflict.fecha_inicio.strftime('%d/%m/%Y') if conflict else rec.fecha_inicio
+                 end_str = conflict.fecha_fin.strftime('%d/%m/%Y') if conflict else rec.fecha_fin
+                 
+                 raise ValidationError(_(
+                    "Acción Bloqueada: El equipo %(product)s ya está reservado del %(start)s al %(end)s.\n"
+                    "(Capacidad Total: %(cap)s, Ocupado: %(occ)s)"
+                ) % {
+                    'product': rec.product_id.name,
+                    'start': start_str,
+                    'end': end_str,
+                    'cap': available_qty,
+                    'occ': overlapping_count,
+                })
+            elif available_qty == 0:
+                 raise ValidationError(_("No hay stock disponible de este activo (0 unidades)."))
+
     def action_confirm(self):
         for rec in self:
             rec.state = "confirmed"
              # 2.3 Anticipo 100%
             if rec.porcentaje_anticipo == 100.0:
                  pass
-            
-            # 2.2 Validación de Estado Técnico del Activo
-            # Validar que el producto esté operativo. Asumimos x_estado_tecnico en el template
-            if rec.product_id and rec.product_id.product_tmpl_id.x_estado_tecnico != 'operativo':
-                 status_label = dict(rec.product_id.product_tmpl_id._fields['x_estado_tecnico'].selection).get(rec.product_id.product_tmpl_id.x_estado_tecnico)
-                 raise ValidationError(_(
-                     "Acción denegada: El activo %(product)s no puede ser reservado porque su estado actual es %(status)s. "
-                     "Motivo: El equipo requiere intervención técnica antes de volver a ser comercializado."
-                 ) % {'product': rec.product_id.name, 'status': status_label})
-
-            # 2.1 Validación de Stock de Tiempo (Disponibilidad por cantidad)
-            if rec.product_id and rec.fecha_inicio and rec.fecha_fin:
-                # Contar suscripciones activas/confirmadas que se solapan
-                domain = [
-                    ('product_id', '=', rec.product_id.id),
-                    ('state', 'in', ['confirmed', 'active']),
-                    ('id', '!=', rec.id),
-                    ('fecha_inicio', '<=', rec.fecha_fin),
-                    ('fecha_fin', '>=', rec.fecha_inicio),
-                ]
-                overlapping_count = self.search_count(domain)
-                
-                # Obtener stock disponible (asumiendo que es un producto storable)
-                # Si es servicio, debería tener una restricción custom o usarse qty_available si se gestiona
-                # El requerimiento dice "Si existen 15 unidades...". Usaremos virtual_available o qty_available.
-                # Para ser seguros, usaremos qty_available (Cantidad a mano/real).
-                available_qty = rec.product_id.qty_available
-                
-                # Si es un servicio, qty_available suele ser 0 a menos que se configure. 
-                # Si el usuario usa stock real, debe ser Storable.
-                # Permitiremos verificar si available_qty > 0. Si es 0, asumimos sin limite O limite 1?
-                # Regla: "Si existen 15 unidades...". Asumimos que el producto TIENE stock configurado.
-                
-                if available_qty > 0 and (overlapping_count + 1) > available_qty:
-                     raise ValidationError(_(
-                        "No es posible confirmar: No hay disponibilidad suficiente del bien para ese periodo. "
-                        "(Capacidad Total: %(cap)s, Ocupado: %(occ)s, Solicitado: 1)"
-                    ) % {
-                        'cap': available_qty,
-                        'occ': overlapping_count,
-                    })
-                elif available_qty == 0 and rec.product_id.type == 'product':
-                     # Si es almacenable y tiene 0 stock
-                     raise ValidationError(_("No hay stock disponible de este producto."))
-                
-                # Si es servicio (type='service') y qty=0, quizá deberíamos permitir o bloquear.
-                # El requerimiento dice "Bienes físicos reales...". Asumimos Productos Almacenables.
+            # Validation handled by constrains on state change
 
     def action_active(self):
         for rec in self:
