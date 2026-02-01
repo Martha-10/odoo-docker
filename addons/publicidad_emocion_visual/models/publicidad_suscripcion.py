@@ -175,6 +175,13 @@ class PublicidadSuscripcion(models.Model):
         tracking=True,
         help="Marcar cuando el anticipo ha sido pagado",
     )
+    saldo_restante = fields.Monetary(
+        string="Saldo Restante",
+        compute="_compute_saldo_restante",
+        store=True,
+        currency_field="currency_id",
+        help="Saldo después de descontar el anticipo (valor_total - monto_anticipo)",
+    )
 
     fecha_inicio = fields.Date(
         string="Fecha de inicio",
@@ -321,29 +328,33 @@ class PublicidadSuscripcion(models.Model):
             if rec.product_id.product_tmpl_id:
                 # Buscar en los atributos del template para extraer price_extra
                 for ptav in rec.product_id.product_template_attribute_value_ids:
-                    attr_name = ptav.attribute_id.name.lower() if ptav.attribute_id else ""
-                    value_name = ptav.product_attribute_value_id.name.lower() if ptav.product_attribute_value_id else ""
+                    if not ptav.attribute_id or not ptav.product_attribute_value_id:
+                        continue
                     
-                    # Ubicación Macro: Extraer price_extra si coincide
-                    if "ubicacion" in attr_name or "ubicación" in attr_name:
+                    attr_name = ptav.attribute_id.name.lower().strip()
+                    value_name = ptav.product_attribute_value_id.name.lower().strip()
+                    
+                    # UBICACIÓN: Buscar atributo 'ubicacion' exactamente
+                    if attr_name == "ubicacion" or "ubicación" in attr_name:
                         if rec.ubicacion_macro:
-                            ubicacion_selected = rec.ubicacion_macro.lower()
-                            if ubicacion_selected in value_name:
-                                ubicacion_extra = ptav.price_extra
+                            ubicacion_selected = rec.ubicacion_macro.lower().strip()
+                            # Verificar si el valor del atributo coincide con la selección
+                            if ubicacion_selected in value_name or value_name in ubicacion_selected:
+                                ubicacion_extra += ptav.price_extra
+                                break  # Solo tomar el primero que coincida
                     
-                    # Tipo de Contenido: Extraer price_extra si es Video
-                    if "contenido" in attr_name or "tipo" in attr_name:
+                    # TIPO DE CONTENIDO: Buscar atributo 'tipo' o 'contenido'
+                    if "tipo" in attr_name or "contenido" in attr_name:
                         if rec.tipo_contenido == "video" and "video" in value_name:
-                            contenido_extra = ptav.price_extra
+                            contenido_extra += ptav.price_extra
             
             # ===== 4. CÁLCULO FINAL =====
-            # Base + Extras Atributos + Prestigio + Ubicación Extra + Contenido Extra
+            # FÓRMULA: base + prestige + ubicacion_extra + contenido_extra
             rec.precio_mensual = (
-                base_price + 
-                attribute_extras + 
-                prestige_surcharge + 
-                ubicacion_extra + 
-                contenido_extra
+                base_price +           # Precio base del producto
+                prestige_surcharge +   # Plus por Centro Comercial
+                ubicacion_extra +      # Extra por Ubicación (del inventario)
+                contenido_extra        # Extra por Video (del inventario)
             )
 
     @api.onchange("product_id")
@@ -384,12 +395,12 @@ class PublicidadSuscripcion(models.Model):
             # Volver al precio base si cambia a estático
             self.precio_mensual = self.product_id.lst_price
 
-    @api.depends("valor_total", "numero_cuotas")
+    @api.depends("saldo_restante", "numero_cuotas")
     def _compute_valor_cuota(self):
-        """Calcula el valor de cada cuota automáticamente"""
+        """Calcula el valor de cada cuota sobre el SALDO RESTANTE (no sobre el total)"""
         for rec in self:
             if rec.numero_cuotas and rec.numero_cuotas > 0:
-                rec.valor_cuota = rec.valor_total / rec.numero_cuotas
+                rec.valor_cuota = rec.saldo_restante / rec.numero_cuotas
             else:
                 rec.valor_cuota = 0.0
 
@@ -401,6 +412,12 @@ class PublicidadSuscripcion(models.Model):
             except ValueError:
                 months = 0
             rec.valor_total = rec.precio_mensual * months
+
+    @api.depends("valor_total", "monto_anticipo")
+    def _compute_saldo_restante(self):
+        """Calcula el saldo restante después de descontar el anticipo"""
+        for rec in self:
+            rec.saldo_restante = rec.valor_total - rec.monto_anticipo
 
     @api.depends("valor_total", "porcentaje_anticipo", "metodo_pago")
     def _compute_monto_anticipo(self):
