@@ -292,37 +292,59 @@ class PublicidadSuscripcion(models.Model):
                             rec.tamano = ptav.product_attribute_value_id.name
                             break
 
-    @api.depends("product_id", "tipo_contenido", "centro_comercial", "ubicacion_macro")
+    @api.depends("product_id", "tipo_contenido", "centro_comercial", "ubicacion_macro", "duracion_meses")
     def _compute_precio_mensual(self):
-        """Motor de precios dinámico: base + extras + recargos por ubicación"""
+        """Motor de precios 100% reactivo con escala de prestigio y consulta dinámica al inventario"""
         for rec in self:
             if not rec.product_id:
                 rec.precio_mensual = 0.0
                 continue
             
-            # 1. Precio base + extras de atributos (Tamaño, Formato ya incluidos en price_extra)
+            # ===== 1. PRECIO BASE DEL ACTIVO =====
+            # Incluye el list_price + extras de Tamaño y Formato ya configurados en la variante
             base_price = rec.product_id.lst_price
-            extra_price = rec.product_id.price_extra if hasattr(rec.product_id, 'price_extra') else 0.0
+            attribute_extras = rec.product_id.price_extra if hasattr(rec.product_id, 'price_extra') else 0.0
             
-            # 2. Recargo por Centro Comercial (personalizable)
-            centro_surcharge = {
-                'viva': 0.0,
-                'buenavista': 0.0,
-                'mallplaza': 0.0,
-                'unico': 0.0,
-                'plaza_central': 0.0,
+            # ===== 2. ESCALA DE PRESTIGIO (CENTRO COMERCIAL) =====
+            prestige_surcharge = {
+                'buenavista': 1500000.0,  # Prestigio Diamante
+                'viva': 1000000.0,         # Prestigio Oro
+                'mallplaza': 500000.0,     # Prestigio Plata
+                'unico': 0.0,              # Base
+                'plaza_central': 0.0,      # Base
             }.get(rec.centro_comercial, 0.0)
             
-            # 3. Recargo por Ubicación Macro (personalizable)
-            ubicacion_surcharge = {
-                'fachada': 0.0,
-                'entrada': 0.0,
-                'pasillo': 0.0,
-                'plazoleta': 0.0,
-            }.get(rec.ubicacion_macro, 0.0)
+            # ===== 3. CONSULTA DINÁMICA AL INVENTARIO (PRICE_EXTRA) =====
+            ubicacion_extra = 0.0
+            contenido_extra = 0.0
             
-            # TOTAL: Base + Extras + Recargos
-            rec.precio_mensual = base_price + extra_price + centro_surcharge + ubicacion_surcharge
+            if rec.product_id.product_tmpl_id:
+                # Buscar en los atributos del template para extraer price_extra
+                for ptav in rec.product_id.product_template_attribute_value_ids:
+                    attr_name = ptav.attribute_id.name.lower() if ptav.attribute_id else ""
+                    value_name = ptav.product_attribute_value_id.name.lower() if ptav.product_attribute_value_id else ""
+                    
+                    # Ubicación Macro: Extraer price_extra si coincide
+                    if "ubicacion" in attr_name or "ubicación" in attr_name:
+                        if rec.ubicacion_macro:
+                            ubicacion_selected = rec.ubicacion_macro.lower()
+                            if ubicacion_selected in value_name:
+                                ubicacion_extra = ptav.price_extra
+                    
+                    # Tipo de Contenido: Extraer price_extra si es Video
+                    if "contenido" in attr_name or "tipo" in attr_name:
+                        if rec.tipo_contenido == "video" and "video" in value_name:
+                            contenido_extra = ptav.price_extra
+            
+            # ===== 4. CÁLCULO FINAL =====
+            # Base + Extras Atributos + Prestigio + Ubicación Extra + Contenido Extra
+            rec.precio_mensual = (
+                base_price + 
+                attribute_extras + 
+                prestige_surcharge + 
+                ubicacion_extra + 
+                contenido_extra
+            )
 
     @api.onchange("product_id")
     def _onchange_product_id(self):
