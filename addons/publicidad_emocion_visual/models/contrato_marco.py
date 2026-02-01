@@ -18,6 +18,12 @@ class ContratoMarco(models.Model):
         required=True,
         ondelete="restrict",
     )
+    user_id = fields.Many2one(
+        comodel_name="res.users",
+        string="Ejecutivo de Cuenta",
+        default=lambda self: self.env.user,
+        help="Asesor responsable de este contrato marco",
+    )
     suscripcion_ids = fields.One2many(
         comodel_name="publicidad.suscripcion",
         inverse_name="contrato_marco_id",

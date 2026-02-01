@@ -31,5 +31,54 @@
             <field name="implied_ids" eval="[(4, ref('group_publicidad_operaciones'))]"/>
             <field name="comment">Único grupo con permiso para confirmar pagos y activar suscripciones.</field>
         </record>
+
+        <!-- RECORD RULES -->
+        
+        <!-- Rule: Asesor (Own Records) -->
+        <record id="rule_publicidad_suscripcion_asesor" model="ir.rule">
+            <field name="name">Suscripciones: Asesor (Propios)</field>
+            <field name="model_id" ref="model_publicidad_suscripcion"/>
+            <field name="groups" eval="[(4, ref('group_publicidad_asesor'))]"/>
+            <field name="domain_force">['|', ('user_id', '=', user.id), ('create_uid', '=', user.id)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_contrato_marco_asesor" model="ir.rule">
+            <field name="name">Contratos: Asesor (Propios)</field>
+            <field name="model_id" ref="model_contrato_marco"/>
+            <field name="groups" eval="[(4, ref('group_publicidad_asesor'))]"/>
+            <field name="domain_force">['|', ('user_id', '=', user.id), ('create_uid', '=', user.id)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <!-- Rule: Finanzas (All Records) -->
+        <record id="rule_publicidad_suscripcion_finanzas" model="ir.rule">
+            <field name="name">Suscripciones: Finanzas (Auditores)</field>
+            <field name="model_id" ref="model_publicidad_suscripcion"/>
+            <field name="groups" eval="[(4, ref('group_publicidad_finanzas')), (4, ref('group_publicidad_operaciones'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <!-- Rule: Admin (God Mode) -->
+        <record id="rule_publicidad_suscripcion_admin" model="ir.rule">
+            <field name="name">Suscripciones: Admin (Total)</field>
+            <field name="model_id" ref="model_publicidad_suscripcion"/>
+            <field name="groups" eval="[(4, ref('base.group_erp_manager'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
     </data>
 </odoo>

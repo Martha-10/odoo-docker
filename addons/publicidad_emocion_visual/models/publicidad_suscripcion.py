@@ -173,7 +173,21 @@ class PublicidadSuscripcion(models.Model):
         string="Anticipo Recibido",
         default=False,
         tracking=True,
-        help="Marcar cuando el anticipo ha sido pagado",
+        groups="publicidad_emocion_visual.group_publicidad_finanzas,base.group_erp_manager",
+        help="Marcar cuando el anticipo ha sido pagado (Solo Finanzas/Admin)",
+    )
+    # Overrides manuales para el Administrador
+    manual_surcharge_ubicacion = fields.Monetary(
+        string="Recargo Manual Ubicación",
+        groups="base.group_erp_manager",
+        currency_field="currency_id",
+        help="Permite forzar un recargo de ubicación si falla la lectura del inventario",
+    )
+    manual_surcharge_contenido = fields.Monetary(
+        string="Recargo Manual Contenido",
+        groups="base.group_erp_manager",
+        currency_field="currency_id",
+        help="Permite forzar un recargo de contenido si falla la lectura del inventario",
     )
     saldo_restante = fields.Monetary(
         string="Saldo Restante",
@@ -199,6 +213,7 @@ class PublicidadSuscripcion(models.Model):
     state = fields.Selection(
         selection=[
             ("draft", "Borrador"),
+            ("waiting_payment", "Esperando Pago"),
             ("confirmed", "Confirmado"),
             ("active", "En Exhibición"),
             ("paused", "Pausada"),
@@ -222,6 +237,17 @@ class PublicidadSuscripcion(models.Model):
         tracking=True,
         help="Estado de aprobación del contenido publicitario",
     )
+
+    # Campos de Permisos para la Vista (Evita errores de uid_has_groups)
+    is_finanzas_or_admin = fields.Boolean(compute="_compute_permissions")
+    is_operaciones_or_higher = fields.Boolean(compute="_compute_permissions")
+
+    @api.depends_context('uid')
+    def _compute_permissions(self):
+        """Calcula permisos dinámicos para la interfaz de usuario"""
+        for rec in self:
+            rec.is_finanzas_or_admin = self.env.user.has_group('publicidad_emocion_visual.group_publicidad_finanzas') or self.env.user.has_group('base.group_erp_manager')
+            rec.is_operaciones_or_higher = self.env.user.has_group('publicidad_emocion_visual.group_publicidad_operaciones') or rec.is_finanzas_or_admin
 
     # Campos legacy/compatibilidad (se mantienen si se usan, o se adaptan)
     invoice_id = fields.Many2one(
@@ -349,12 +375,15 @@ class PublicidadSuscripcion(models.Model):
                             contenido_extra += ptav.price_extra
             
             # ===== 4. CÁLCULO FINAL =====
-            # FÓRMULA: base + prestige + ubicacion_extra + contenido_extra
+            # FÓRMULA: base + prestige + (ubicacion_extra o manual) + (contenido_extra o manual)
+            final_ubicacion = rec.manual_surcharge_ubicacion if rec.manual_surcharge_ubicacion > 0 else ubicacion_extra
+            final_contenido = rec.manual_surcharge_contenido if rec.manual_surcharge_contenido > 0 else contenido_extra
+            
             rec.precio_mensual = (
                 base_price +           # Precio base del producto
                 prestige_surcharge +   # Plus por Centro Comercial
-                ubicacion_extra +      # Extra por Ubicación (del inventario)
-                contenido_extra        # Extra por Video (del inventario)
+                final_ubicacion +      # Extra por Ubicación
+                final_contenido        # Extra por Video
             )
 
     @api.onchange("product_id")
@@ -395,12 +424,15 @@ class PublicidadSuscripcion(models.Model):
             # Volver al precio base si cambia a estático
             self.precio_mensual = self.product_id.lst_price
 
-    @api.depends("saldo_restante", "numero_cuotas")
+    @api.depends("valor_total", "porcentaje_anticipo", "numero_cuotas")
     def _compute_valor_cuota(self):
-        """Calcula el valor de cada cuota sobre el SALDO RESTANTE (no sobre el total)"""
+        """Calcula el valor de cada cuota sobre el SALDO RESTANTE (valor_total - monto_anticipo)"""
         for rec in self:
             if rec.numero_cuotas and rec.numero_cuotas > 0:
-                rec.valor_cuota = rec.saldo_restante / rec.numero_cuotas
+                # Calcular saldo restante en línea para evitar dependencias circulares
+                monto_anticipo = rec.valor_total * (rec.porcentaje_anticipo / 100.0) if rec.porcentaje_anticipo > 0 else 0.0
+                saldo_pendiente = rec.valor_total - monto_anticipo
+                rec.valor_cuota = saldo_pendiente / rec.numero_cuotas
             else:
                 rec.valor_cuota = 0.0
 
@@ -419,19 +451,14 @@ class PublicidadSuscripcion(models.Model):
         for rec in self:
             rec.saldo_restante = rec.valor_total - rec.monto_anticipo
 
-    @api.depends("valor_total", "porcentaje_anticipo", "metodo_pago")
+    @api.depends("valor_total", "porcentaje_anticipo")
     def _compute_monto_anticipo(self):
-        """Calcula el monto del anticipo según el método de pago"""
+        """Calcula el monto del anticipo basado en el porcentaje"""
         for rec in self:
-            if rec.metodo_pago in ["anticipo_saldo", "cuotas"]:
-                if rec.porcentaje_anticipo > 0:
-                    rec.monto_anticipo = rec.valor_total * (rec.porcentaje_anticipo / 100.0)
-                else:
-                    # Anticipo por defecto: 30% para cuotas
-                    if rec.metodo_pago == "cuotas":
-                        rec.monto_anticipo = rec.valor_total * 0.30
-                    else:
-                        rec.monto_anticipo = 0.0
+            # FÓRMULA EXACTA: monto_anticipo = valor_total * (porcentaje_anticipo / 100)
+            # Si porcentaje_anticipo es 0, el monto DEBE ser 0
+            if rec.porcentaje_anticipo > 0:
+                rec.monto_anticipo = rec.valor_total * (rec.porcentaje_anticipo / 100.0)
             else:
                 rec.monto_anticipo = 0.0
 
@@ -506,10 +533,22 @@ class PublicidadSuscripcion(models.Model):
                         'end': end_str,
                     })
 
+    def action_request_approval(self):
+        """Solicita aprobación de finanzas y notifica"""
+        for rec in self:
+            rec.state = "waiting_payment"
+            # Notificación en el chatter
+            rec.message_post(
+                body=_("Solicitud de Aprobación: El Asesor ha enviado esta suscripción para validación de pago."),
+                message_type='comment',
+                subtype_xmlid='mail.mt_comment'
+            )
+
     def action_confirm(self):
-        """Confirma la suscripción"""
+        """Confirma la suscripción (Normalmente por Finanzas)"""
         for rec in self:
             rec.state = "confirmed"
+            rec.message_post(body=_("Suscripción Confirmada: El pago ha sido validado."))
 
     def action_active(self):
         """Activa la suscripción con validaciones estrictas"""

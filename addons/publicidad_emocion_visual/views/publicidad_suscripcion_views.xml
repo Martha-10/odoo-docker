@@ -33,20 +33,33 @@
         <field name="arch" type="xml">
             <form string="Suscripción de publicidad">
                 <header>
-                    <button name="action_confirm" string="Confirmar" type="object" class="btn-primary"
+                    <button name="action_request_approval" string="Solicitar Aprobación" type="object" class="btn-primary"
+                            groups="publicidad_emocion_visual.group_publicidad_asesor"
                             invisible="state != 'draft'"/>
+                    
+                    <button name="action_confirm" string="Validar Pago y Confirmar" type="object" class="btn-primary"
+                            groups="publicidad_emocion_visual.group_publicidad_finanzas,base.group_erp_manager"
+                            invisible="state != 'waiting_payment'"/>
+                    
                     <button name="action_active" string="Iniciar Exhibición" type="object" class="btn-primary"
+                            groups="publicidad_emocion_visual.group_publicidad_operaciones,publicidad_emocion_visual.group_publicidad_finanzas,base.group_erp_manager"
                             invisible="state != 'confirmed'"/>
+                    
                     <button name="action_approve_art" string="Aprobar Arte" type="object" class="btn-secondary"
+                            groups="publicidad_emocion_visual.group_publicidad_operaciones,publicidad_emocion_visual.group_publicidad_finanzas,base.group_erp_manager"
                             invisible="estado_arte != 'pending'"/>
+                            
                     <button name="action_pause" string="Pausar" type="object"
                             invisible="state != 'active'"/>
+                    
                     <button name="action_cancel" string="Cancelar" type="object"
                             invisible="state in ('cancel', 'expired')"/>
+                            
                     <button name="action_draft" string="Volver a Borrador" type="object"
+                            groups="base.group_erp_manager"
                             invisible="state == 'draft'"/>
 
-                    <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,active,expired"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,waiting_payment,confirmed,active,expired"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -66,6 +79,8 @@
                         </group>
                         <group>
                             <field name="state" invisible="1"/>
+                            <field name="is_finanzas_or_admin" invisible="1"/>
+                            <field name="is_operaciones_or_higher" invisible="1"/>
                             <separator string="Vigencia"/>
                             <label for="fecha_inicio" string="Periodo"/>
                             <div class="o_row">
@@ -96,16 +111,16 @@
                                     <field name="fecha_fin"/>
                                 </group>
                                 <group string="Facturación">
-                                    <field name="precio_mensual"/>
-                                    <field name="valor_total"/>
+                                    <field name="precio_mensual" readonly="state != 'draft' or not is_finanzas_or_admin"/>
+                                    <field name="valor_total" readonly="1"/>
                                     <field name="currency_id" invisible="1"/>
                                 </group>
                                 <group string="Método de Pago">
-                                    <field name="metodo_pago"/>
-                                    <field name="numero_cuotas" invisible="metodo_pago != 'cuotas'"/>
-                                    <field name="valor_cuota" invisible="metodo_pago != 'cuotas'"/>
-                                    <field name="porcentaje_anticipo" widget="percentage" invisible="metodo_pago not in ['anticipo_saldo', 'cuotas']"/>
-                                    <field name="monto_anticipo" invisible="metodo_pago not in ['anticipo_saldo', 'cuotas']"/>
+                                    <field name="metodo_pago" readonly="state != 'draft'"/>
+                                    <field name="numero_cuotas" invisible="metodo_pago != 'cuotas'" readonly="state != 'draft'"/>
+                                    <field name="valor_cuota" invisible="metodo_pago != 'cuotas'" readonly="1"/>
+                                    <field name="porcentaje_anticipo" widget="percentage" invisible="metodo_pago not in ['anticipo_saldo', 'cuotas']" readonly="state != 'draft'"/>
+                                    <field name="monto_anticipo" invisible="metodo_pago not in ['anticipo_saldo', 'cuotas']" readonly="1"/>
                                     <field name="anticipo_recibido" invisible="monto_anticipo == 0"/>
                                 </group>
                             </group>
@@ -117,8 +132,12 @@
                                     <field name="formato" readonly="1" force_save="1"/>
                                     <field name="tamano" readonly="1" force_save="1"/>
                                 </group>
+                                <group string="Administración (Admin Only)" groups="base.group_erp_manager">
+                                    <field name="manual_surcharge_ubicacion"/>
+                                    <field name="manual_surcharge_contenido"/>
+                                </group>
                                 <group string="Aprobación de Arte">
-                                    <field name="estado_arte"/>
+                                    <field name="estado_arte" readonly="not is_operaciones_or_higher"/>
                                 </group>
                            </group>
                         </page>

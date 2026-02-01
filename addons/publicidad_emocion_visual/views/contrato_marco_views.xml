@@ -9,6 +9,7 @@
                     <group>
                         <field name="name"/>
                         <field name="partner_id"/>
+                        <field name="user_id"/>
                     </group>
                     <notebook>
                         <page string="Historial">
@@ -36,6 +37,7 @@
             <list string="Contratos Marco">
                 <field name="name"/>
                 <field name="partner_id"/>
+                <field name="user_id"/>
             </list>
         </field>
     </record>
