@@ -44,26 +44,29 @@ class PublicidadSuscripcion(models.Model):
     product_id = fields.Many2one(
         comodel_name="product.product",
         string="Activo Publicitario",
-        # Domain removed to restore visibility.
-        # domain=[("type", "=", "product")],
+        domain=[("type", "=", "product")],
         required=True,
         tracking=True,
     )
 
-    # === ATRIBUTOS FÍSICOS DEL ACTIVO (READONLY - Desde Inventario) ===
-    formato = fields.Char(
+    # === ATRIBUTOS FÍSICOS DEL ACTIVO (RELATED - Desde Inventario - Single Source of Truth) ===
+    formato = fields.Selection(
+        related="product_id.formato_id",
         string="Formato",
-        compute="_compute_technical_specs",
-        store=True,
         readonly=True,
-        help="Formato del activo físico (extraído del inventario)",
+        help="Formato del activo físico (Sincronizado desde el Inventario)",
     )
     tamano = fields.Char(
+        related="product_id.tamano",
         string="Tamaño",
-        compute="_compute_technical_specs",
-        store=True,
         readonly=True,
-        help="Dimensiones del activo físico (extraído del inventario)",
+        help="Dimensiones del activo físico (Sincronizado desde el Inventario)",
+    )
+    sale_line_id = fields.Many2one(
+        "sale.order.line",
+        string="Línea de Venta",
+        readonly=True,
+        ondelete="set null",
     )
     
     # === VARIABLES DE NEGOCIO Y SERVICIO (EDITABLES) ===
@@ -298,32 +301,7 @@ class PublicidadSuscripcion(models.Model):
         
         return super().create(vals)
 
-    @api.depends("product_id")
-    def _compute_technical_specs(self):
-        """Extrae atributos técnicos readonly desde attribute_line_ids del inventario"""
-        for rec in self:
-            rec.formato = ""
-            rec.tamano = ""
-            
-            if not rec.product_id or not rec.product_id.product_tmpl_id:
-                continue
-                
-            # Buscar en las líneas de atributos del template
-            for attr_line in rec.product_id.product_tmpl_id.attribute_line_ids:
-                attr_name = attr_line.attribute_id.name.lower() if attr_line.attribute_id.name else ""
-                
-                if "formato" in attr_name:
-                    # Obtener el valor específico para esta variante
-                    for ptav in rec.product_id.product_template_attribute_value_ids:
-                        if ptav.attribute_id == attr_line.attribute_id:
-                            rec.formato = ptav.product_attribute_value_id.name
-                            break
-                            
-                elif "tamaño" in attr_name or "tamano" in attr_name:
-                    for ptav in rec.product_id.product_template_attribute_value_ids:
-                        if ptav.attribute_id == attr_line.attribute_id:
-                            rec.tamano = ptav.product_attribute_value_id.name
-                            break
+    # _compute_technical_specs removed as it is now handled by related fields
 
     @api.depends("product_id", "tipo_contenido", "centro_comercial", "ubicacion_macro", "duracion_meses")
     def _compute_precio_mensual(self):
@@ -578,6 +556,58 @@ class PublicidadSuscripcion(models.Model):
     def action_draft(self):
         self.write({"state": "draft"})
     
+    def action_create_invoice(self):
+        """Genera factura agrupada por Contrato Marco y Cliente"""
+        Invoice = self.env["account.move"]
+        for rec in self:
+            if rec.invoice_id:
+                continue
+            
+            # Search for an existing draft invoice for the same Contrato Marco
+            existing_invoice = Invoice.search([
+                ("partner_id", "=", rec.partner_id.id),
+                ("contrato_marco_id", "=", rec.contrato_marco_id.id),
+                ("state", "=", "draft"),
+                ("move_type", "=", "out_invoice"),
+            ], limit=1)
+
+            if existing_invoice:
+                invoice = existing_invoice
+            else:
+                invoice = Invoice.create({
+                    "move_type": "out_invoice",
+                    "partner_id": rec.partner_id.id,
+                    "contrato_marco_id": rec.contrato_marco_id.id,
+                    "invoice_date": fields.Date.today(),
+                })
+            
+            # Add line to invoice
+            self.env["account.move.line"].create({
+                "move_id": invoice.id,
+                "product_id": rec.product_id.id,
+                "name": f"{rec.name} - {rec.formato or ''}",
+                "quantity": 1,
+                "price_unit": rec.precio_mensual,
+                # Link subscription to invoice
+            })
+            rec.invoice_id = invoice.id
+            
+        return {
+            "name": _("Factura"),
+            "view_mode": "form",
+            "res_model": "account.move",
+            "res_id": self.invoice_id.id if len(self) == 1 else False,
+            "type": "ir.actions.act_window",
+            "target": "current",
+        }
+
+    def _update_state_from_invoice(self):
+        """Actualiza el estado de la suscripción basado en el pago de la factura"""
+        for rec in self:
+            if rec.invoice_id and rec.invoice_id.payment_state == 'paid':
+                if rec.state == 'waiting_payment':
+                    rec.action_confirm()
+
     # --- ARTE ---
     def action_approve_art(self):
         self.write({"estado_arte": "approved"})

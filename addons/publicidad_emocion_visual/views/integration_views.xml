@@ -1,0 +1,70 @@
+<odoo>
+    <data>
+        <!-- Extensions for CRM Lead -->
+        <record id="crm_lead_view_form_inherit_publicidad" model="ir.ui.view">
+            <field name="name">crm.lead.form.inherit.publicidad</field>
+            <field name="model">crm.lead</field>
+            <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+            <field name="arch" type="xml">
+                <field name="team_id" position="after">
+                    <field name="product_id" options="{'no_create': True}"/>
+                </field>
+            </field>
+        </record>
+
+        <!-- Extensions for Sale Order -->
+        <record id="view_order_form_inherit_publicidad" model="ir.ui.view">
+            <field name="name">sale.order.form.inherit.publicidad</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale.view_order_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='order_line']/list/field[@name='product_id']" position="after">
+                    <field name="x_pauta_inicio"/>
+                    <field name="x_pauta_duracion"/>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- Extensions for Account Move -->
+        <record id="view_move_form_inherit_publicidad" model="ir.ui.view">
+            <field name="name">account.move.form.inherit.publicidad</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account.view_move_form"/>
+            <field name="arch" type="xml">
+                <field name="partner_id" position="after">
+                    <field name="contrato_marco_id" readonly="1" invisible="not contrato_marco_id"/>
+                </field>
+                <notebook position="inside">
+                    <page string="Suscripciones Relacionadas" invisible="not suscripcion_ids">
+                        <field name="suscripcion_ids" readonly="1">
+                            <list>
+                                <field name="name"/>
+                                <field name="product_id"/>
+                                <field name="fecha_inicio"/>
+                                <field name="fecha_fin"/>
+                                <field name="state"/>
+                            </list>
+                        </field>
+                    </page>
+                </notebook>
+            </field>
+        </record>
+
+        <!-- Button in Publicidad Suscripcion to trigger Invoice Generation -->
+        <record id="view_publicidad_suscripcion_form_inherit_invoice" model="ir.ui.view">
+            <field name="name">publicidad.suscripcion.form.inherit.invoice</field>
+            <field name="model">publicidad.suscripcion</field>
+            <field name="inherit_id" ref="publicidad_emocion_visual.view_publicidad_suscripcion_form"/>
+            <field name="arch" type="xml">
+                <header position="inside">
+                    <button name="action_create_invoice" string="Generar Factura" type="object"
+                            class="btn-secondary"
+                            invisible="state not in ('confirmed', 'active') or invoice_id"/>
+                </header>
+                <field name="contrato_marco_id" position="after">
+                    <field name="invoice_id" invisible="not invoice_id"/>
+                </field>
+            </field>
+        </record>
+    </data>
+</odoo>

@@ -9,6 +9,12 @@ class AccountMove(models.Model):
         inverse_name="invoice_id",
         string="Suscripciones de publicidad",
     )
+    contrato_marco_id = fields.Many2one(
+        "contrato.marco",
+        string="Contrato Marco",
+        ondelete="set null",
+        help="Contrato Marco al que pertenece esta factura",
+    )
 
     def write(self, vals):
         res = super().write(vals)
